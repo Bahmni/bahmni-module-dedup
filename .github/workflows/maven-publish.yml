@@ -1,0 +1,37 @@
+name: Maven Package and Publish
+
+on:
+  push:
+    branches: [ main ]
+   # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up JDK 8
+      uses: actions/setup-java@v4
+      with:
+        java-version: '8'
+        distribution: 'corretto'
+        cache: maven
+        server-id: nexus-sonatype
+        server-username: NEXUS_USERNAME
+        server-password: NEXUS_PASSWORD
+    - name: Build and deploy with Maven
+      run: |
+        PROJECT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        if [[ "$PROJECT_VERSION" == *"-SNAPSHOT" ]]; then
+          mvn --no-transfer-progress clean -U deploy
+        else
+          echo "❌ The current push is for release. So skipping build."
+        fi
+      env:
+        NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+        NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}

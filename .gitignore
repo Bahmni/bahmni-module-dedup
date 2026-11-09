@@ -1,0 +1,16 @@
+*.class
+*.iml
+.settings
+.project
+.classpath
+.DS_Store
+.idea
+.mvn
+.vscode
+
+target
+
+# Package Files #
+*.jar
+*.war
+*.ear
