@@ -15,10 +15,6 @@ import org.openmrs.Patient;
 import org.openmrs.annotation.Authorized;
 import org.openmrs.util.PrivilegeConstants;
 
-/**
- * Public, business-facing contract for the Task module. This is the API other modules should depend
- * on instead of the internal {@link TaskDao}.
- */
 public interface PatientMatchService {
 	
 	@Authorized({ PrivilegeConstants.GET_PATIENTS })
