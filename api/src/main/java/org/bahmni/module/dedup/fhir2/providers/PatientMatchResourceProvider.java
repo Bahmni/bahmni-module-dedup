@@ -29,13 +29,6 @@ public class PatientMatchResourceProvider implements IResourceProvider {
 		return Patient.class;
 	}
 	
-	/**
-	 * dummy implementation
-	 * 
-	 * @param resource
-	 * @param requestDetails
-	 * @return
-	 */
 	@Operation(name = "$match", idempotent = false)
 	public Bundle match(@OperationParam(name = "resource") Patient resource, RequestDetails requestDetails) {
 		if (resource == null) {
