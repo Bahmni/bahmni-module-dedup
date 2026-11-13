@@ -32,15 +32,19 @@ import java.util.stream.Stream;
 
 @Component("bahmniPatientMatchService")
 public class PatientMatchServiceImpl implements PatientMatchService {
-
+	
 	private static final Set<Enumerations.AdministrativeGender> ALLOWED_GENDERS = EnumSet.of(
 	    Enumerations.AdministrativeGender.MALE, Enumerations.AdministrativeGender.FEMALE,
 	    Enumerations.AdministrativeGender.OTHER);
+	
 	public static final String ERR_MISSING_FIRST_NAME = "First name is missing";
+	
 	public static final String ERR_MISSING_LAST_NAME = "Last name is missing";
+	
 	public static final String ERROR_MISSING_GENDER = "Gender is missing";
+	
 	public static final String ERR_INVALID_GENDER = "Gender is not valid: expected male, female or other";
-
+	
 	private final PatientService patientService;
 	
 	private final PersonService personService;
@@ -70,13 +74,12 @@ public class PatientMatchServiceImpl implements PatientMatchService {
 		
 		Set<Person> similarPeople = personService.getSimilarPeople(name, birthYear,
 		    genderTranslator.toOpenmrsType(toMatch.getGender()));
-
+		
 		return similarPeople.stream().filter(Person::getIsPatient)
-				.map(person -> patientService.getPatient(person.getPersonId()))
-				.map(patientTranslator::toFhirResource)
-				.collect(Collectors.toList());
+		        .map(person -> patientService.getPatient(person.getPersonId()))
+		        .map(patientTranslator::toFhirResource).collect(Collectors.toList());
 	}
-
+	
 	private void validate(org.hl7.fhir.r4.model.Patient fhirPatient) {
 		HumanName name = fhirPatient.getNameFirstRep();
 		if (!name.hasGiven()) {
