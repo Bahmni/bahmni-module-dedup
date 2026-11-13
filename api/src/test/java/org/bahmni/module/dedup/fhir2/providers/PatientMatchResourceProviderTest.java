@@ -20,7 +20,6 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
-import org.openmrs.module.fhir2.api.translators.PatientTranslator;
 
 import java.util.Collections;
 
@@ -37,9 +36,6 @@ public class PatientMatchResourceProviderTest {
 	private PatientMatchService matchService;
 	
 	@Mock
-	private PatientTranslator patientTranslator;
-	
-	@Mock
 	private RequestDetails requestDetails;
 	
 	private PatientMatchResourceProvider provider;
@@ -47,7 +43,7 @@ public class PatientMatchResourceProviderTest {
 	@Before
 	public void setUp() {
 		when(requestDetails.getFhirServerBase()).thenReturn("http://localhost/openmrs/ws/fhir2/R4");
-		provider = new PatientMatchResourceProvider(matchService, patientTranslator);
+		provider = new PatientMatchResourceProvider(matchService);
 	}
 	
 	@Test
@@ -55,11 +51,9 @@ public class PatientMatchResourceProviderTest {
 		Patient request = patient("Sasirekha", "P");
 		request.setGender(Enumerations.AdministrativeGender.FEMALE);
 		request.setBirthDateElement(new DateType("2002-02-11"));
-		org.openmrs.Patient openmrsPatient = new org.openmrs.Patient();
 		Patient fhirPatient = new Patient();
 		fhirPatient.setId("uuid-1");
-		when(matchService.findMatches(request)).thenReturn(Collections.singletonList(openmrsPatient));
-		when(patientTranslator.toFhirResource(openmrsPatient)).thenReturn(fhirPatient);
+		when(matchService.findMatches(request)).thenReturn(Collections.singletonList(fhirPatient));
 		
 		Bundle bundle = provider.match(request, requestDetails);
 		

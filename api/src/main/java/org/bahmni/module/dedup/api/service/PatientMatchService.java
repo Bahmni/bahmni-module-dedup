@@ -10,12 +10,12 @@ package org.bahmni.module.dedup.api.service;
 
 import java.util.List;
 
-import org.openmrs.Patient;
+import org.hl7.fhir.r4.model.Patient;
 import org.openmrs.annotation.Authorized;
 import org.openmrs.util.PrivilegeConstants;
 
 public interface PatientMatchService {
 	
 	@Authorized({ PrivilegeConstants.GET_PATIENTS })
-	List<Patient> findMatches(org.hl7.fhir.r4.model.Patient patient);
+	List<Patient> findMatches(Patient patient);
 }
