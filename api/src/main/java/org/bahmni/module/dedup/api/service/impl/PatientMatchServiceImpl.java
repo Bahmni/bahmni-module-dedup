@@ -76,8 +76,8 @@ public class PatientMatchServiceImpl implements PatientMatchService {
 		    genderTranslator.toOpenmrsType(toMatch.getGender()));
 		
 		return similarPeople.stream().filter(Person::getIsPatient)
-		        .map(person -> patientService.getPatient(person.getPersonId()))
-		        .map(patientTranslator::toFhirResource).collect(Collectors.toList());
+		        .map(person -> patientService.getPatient(person.getPersonId())).map(patientTranslator::toFhirResource)
+		        .collect(Collectors.toList());
 	}
 	
 	private void validate(org.hl7.fhir.r4.model.Patient fhirPatient) {
