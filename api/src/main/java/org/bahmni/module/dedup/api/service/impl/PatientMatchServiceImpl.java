@@ -24,17 +24,23 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.ZoneId;
-import java.util.*;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Component("bahmniPatientMatchService")
 public class PatientMatchServiceImpl implements PatientMatchService {
-	
+
 	private static final Set<Enumerations.AdministrativeGender> ALLOWED_GENDERS = EnumSet.of(
 	    Enumerations.AdministrativeGender.MALE, Enumerations.AdministrativeGender.FEMALE,
 	    Enumerations.AdministrativeGender.OTHER);
-	
+	public static final String ERR_MISSING_FIRST_NAME = "First name is missing";
+	public static final String ERR_MISSING_LAST_NAME = "Last name is missing";
+	public static final String ERROR_MISSING_GENDER = "Gender is missing";
+	public static final String ERR_INVALID_GENDER = "Gender is not valid: expected male, female or other";
+
 	private final PatientService patientService;
 	
 	private final PersonService personService;
@@ -62,42 +68,29 @@ public class PatientMatchServiceImpl implements PatientMatchService {
 		        ? toMatch.getBirthDate().toInstant().atZone(ZoneId.systemDefault()).getYear()
 		        : null;
 		
-		Set<Person> similarPeople = getPersonService().getSimilarPeople(name, birthYear,
+		Set<Person> similarPeople = personService.getSimilarPeople(name, birthYear,
 		    genderTranslator.toOpenmrsType(toMatch.getGender()));
-		
-		List<org.hl7.fhir.r4.model.Patient> patients = new ArrayList<>();
-		for (Person person : similarPeople) {
-			if (!person.getIsPatient()) {
-				continue;
-			}
-			Optional.ofNullable(getPatientService().getPatient(person.getPersonId())).map(patientTranslator::toFhirResource)
-			        .ifPresent(patients::add);
-		}
-		return patients;
+
+		return similarPeople.stream().filter(Person::getIsPatient)
+				.map(person -> patientService.getPatient(person.getPersonId()))
+				.map(patientTranslator::toFhirResource)
+				.collect(Collectors.toList());
 	}
-	
-	private PatientService getPatientService() {
-		return this.patientService;
-	}
-	
-	private PersonService getPersonService() {
-		return this.personService;
-	}
-	
+
 	private void validate(org.hl7.fhir.r4.model.Patient fhirPatient) {
 		HumanName name = fhirPatient.getNameFirstRep();
 		if (!name.hasGiven()) {
-			throw new InvalidRequestException("First name is missing");
+			throw new InvalidRequestException(ERR_MISSING_FIRST_NAME);
 		}
 		if (StringUtils.isBlank(name.getFamily())) {
-			throw new InvalidRequestException("Last name is missing");
+			throw new InvalidRequestException(ERR_MISSING_LAST_NAME);
 		}
 		Enumerations.AdministrativeGender gender = fhirPatient.getGender();
 		if (gender == null) {
-			throw new InvalidRequestException("Gender is missing");
+			throw new InvalidRequestException(ERROR_MISSING_GENDER);
 		}
 		if (!ALLOWED_GENDERS.contains(gender)) {
-			throw new InvalidRequestException("Gender is not valid: expected male, female or other");
+			throw new InvalidRequestException(ERR_INVALID_GENDER);
 		}
 	}
 	

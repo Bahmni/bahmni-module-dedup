@@ -58,9 +58,19 @@ public class PatientMatchServiceImplTest {
 	public void setUp() {
 		service = new PatientMatchServiceImpl(patientService, personService, patientTranslator, new GenderTranslatorImpl());
 	}
-	
-	@After
-	public void tearDown() {
+
+
+	@Test
+	public void doSomething() {
+		Person person1 = new Person();
+		person1.setGender("male");
+		person1.setDead(true);
+
+		Person person2 = new Person();
+		person2.setGender("female");
+		person2.setDead(true);
+
+		Arrays.asList(person1, person2).stream().filter(Person::getDead).forEach(person -> System.out.println(person.getGender()));
 	}
 	
 	@Test
