@@ -12,7 +12,6 @@ import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
 import org.hl7.fhir.r4.model.DateType;
 import org.hl7.fhir.r4.model.Enumerations;
 import org.hl7.fhir.r4.model.HumanName;
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -57,20 +56,6 @@ public class PatientMatchServiceImplTest {
 	@Before
 	public void setUp() {
 		service = new PatientMatchServiceImpl(patientService, personService, patientTranslator, new GenderTranslatorImpl());
-	}
-
-
-	@Test
-	public void doSomething() {
-		Person person1 = new Person();
-		person1.setGender("male");
-		person1.setDead(true);
-
-		Person person2 = new Person();
-		person2.setGender("female");
-		person2.setDead(true);
-
-		Arrays.asList(person1, person2).stream().filter(Person::getDead).forEach(person -> System.out.println(person.getGender()));
 	}
 	
 	@Test
