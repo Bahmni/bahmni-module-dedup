@@ -18,7 +18,6 @@ import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.r4.model.Bundle;
 import org.hl7.fhir.r4.model.Patient;
 import org.openmrs.module.fhir2.api.annotations.R4Provider;
-import org.openmrs.module.fhir2.api.translators.PatientTranslator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -30,12 +29,9 @@ public class PatientMatchResourceProvider implements IResourceProvider {
 	
 	private final PatientMatchService matchService;
 	
-	private final PatientTranslator patientTranslator;
-	
 	@Autowired
-	public PatientMatchResourceProvider(PatientMatchService matchService, PatientTranslator patientTranslator) {
+	public PatientMatchResourceProvider(PatientMatchService matchService) {
 		this.matchService = matchService;
-		this.patientTranslator = patientTranslator;
 	}
 	
 	@Override
@@ -49,14 +45,13 @@ public class PatientMatchResourceProvider implements IResourceProvider {
 			throw new InvalidRequestException("Parameter 'resource' with a Patient is required");
 		}
 		
-		List<org.openmrs.Patient> matches = matchService.findMatches(resource);
+		List<Patient> matches = matchService.findMatches(resource);
 		
 		Bundle bundle = new Bundle();
 		bundle.setType(Bundle.BundleType.SEARCHSET);
 		bundle.setTotal(matches.size());
-		for (org.openmrs.Patient match : matches) {
+		for (Patient fhirPatient : matches) {
 			Bundle.BundleEntryComponent entry = bundle.addEntry();
-			Patient fhirPatient = patientTranslator.toFhirResource(match);
 			entry.setFullUrl(requestDetails.getFhirServerBase() + "/Patient/" + fhirPatient.getIdElement().getIdPart());
 			entry.setResource(fhirPatient);
 			entry.getSearch().setMode(Bundle.SearchEntryMode.MATCH);

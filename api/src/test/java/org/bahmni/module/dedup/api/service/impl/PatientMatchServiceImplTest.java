@@ -17,14 +17,13 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.openmrs.Patient;
 import org.openmrs.Person;
 import org.openmrs.api.PatientService;
 import org.openmrs.api.PersonService;
-import org.openmrs.api.context.Context;
+import org.openmrs.module.fhir2.api.translators.PatientTranslator;
 import org.openmrs.module.fhir2.api.translators.impl.GenderTranslatorImpl;
 
 import java.util.Arrays;
@@ -50,20 +49,18 @@ public class PatientMatchServiceImplTest {
 	@Mock
 	private PatientService patientService;
 	
-	private MockedStatic<Context> contextMock;
+	@Mock
+	private PatientTranslator patientTranslator;
 	
-	private final PatientMatchServiceImpl service = new PatientMatchServiceImpl(new GenderTranslatorImpl());
+	private PatientMatchServiceImpl service;
 	
 	@Before
 	public void setUp() {
-		contextMock = Mockito.mockStatic(Context.class);
-		contextMock.when(Context::getPersonService).thenReturn(personService);
-		contextMock.when(Context::getPatientService).thenReturn(patientService);
+		service = new PatientMatchServiceImpl(patientService, personService, patientTranslator, new GenderTranslatorImpl());
 	}
 	
 	@After
 	public void tearDown() {
-		contextMock.close();
 	}
 	
 	@Test
@@ -101,15 +98,15 @@ public class PatientMatchServiceImplTest {
 	public void shouldSkipPeopleWhoAreNotPatientsAndReturnPatients() {
 		Person patientPerson = person(1, true);
 		Person nonPatientPerson = person(2, false);
-		Patient patient = new Patient();
+		org.hl7.fhir.r4.model.Patient fhirPatient = fhirPatient(Collections.singletonList("Raghu"), "Jetley",
+		    Enumerations.AdministrativeGender.MALE, "1995");
 		when(personService.getSimilarPeople(any(), any(), any()))
 		        .thenReturn(new LinkedHashSet<>(Arrays.asList(patientPerson, nonPatientPerson)));
-		when(patientService.getPatient(1)).thenReturn(patient);
-		
-		List<Patient> result = service
+		when(patientService.getPatient(1)).thenReturn(new Patient());
+		when(patientTranslator.toFhirResource(any(Patient.class))).thenReturn(fhirPatient);
+		List<org.hl7.fhir.r4.model.Patient> result = service
 		        .findMatches(fhirPatient(Collections.singletonList("A"), "B", Enumerations.AdministrativeGender.MALE, null));
-		
-		assertThat(result, contains(patient));
+		assertThat(result, contains(fhirPatient));
 		verify(patientService, never()).getPatient(2);
 	}
 	
@@ -120,7 +117,7 @@ public class PatientMatchServiceImplTest {
 		when(personService.getSimilarPeople(any(), any(), any()))
 		        .thenReturn(new LinkedHashSet<>(Arrays.asList(first, second)));
 		
-		List<Patient> result = service
+		List<org.hl7.fhir.r4.model.Patient> result = service
 		        .findMatches(fhirPatient(Collections.singletonList("A"), "B", Enumerations.AdministrativeGender.MALE, null));
 		
 		assertThat(result, empty());
