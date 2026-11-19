@@ -44,11 +44,10 @@
 
 	<properties>
 		<junit.jupiter.version>5.10.2</junit.jupiter.version>
-		<openmrsPlatformVersion>2.7.4</openmrsPlatformVersion>
-		<openmrs.fhir2.version>2.5.1</openmrs.fhir2.version>
+		<openmrsPlatformVersion>2.8.10</openmrsPlatformVersion>
+		<openmrs.fhir2.version>4.3.0</openmrs.fhir2.version>
 		<lombokVersion>1.18.40</lombokVersion>
-		<mockitoVersion>3.5.11</mockitoVersion>
-		<powerMockVersion>2.0.9</powerMockVersion>
+		<mockitoVersion>4.11.0</mockitoVersion>
 		<jacocoVersion>0.8.12</jacocoVersion>
 		<openmrs.license.header.inline>This Source Code Form is subject to the terms of the Mozilla Public License,
 			v. 2.0. If a copy of the MPL was not distributed with this file, You can
@@ -128,18 +127,6 @@
 						<artifactId>junit-vintage-engine</artifactId>
 					</exclusion>
 				</exclusions>
-			</dependency>
-			<dependency>
-				<groupId>org.powermock</groupId>
-				<artifactId>powermock-module-junit4</artifactId>
-				<version>${powerMockVersion}</version>
-				<scope>test</scope>
-			</dependency>
-			<dependency>
-				<groupId>org.powermock</groupId>
-				<artifactId>powermock-api-mockito2</artifactId>
-				<version>${powerMockVersion}</version>
-				<scope>test</scope>
 			</dependency>
 			<dependency>
 				<groupId>org.mockito</groupId>
@@ -291,8 +278,8 @@
 					<groupId>org.apache.maven.plugins</groupId>
 					<artifactId>maven-compiler-plugin</artifactId>
 					<configuration>
-						<target>1.8</target>
-						<source>1.8</source>
+						<target>17</target>
+						<source>17</source>
 					</configuration>
 				</plugin>
 				<plugin>
