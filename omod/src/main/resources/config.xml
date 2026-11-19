@@ -23,7 +23,7 @@
 
     <activator>org.bahmni.module.dedup.DedupModuleActivator</activator>
 
-    <require_version>2.5.7</require_version>
+    <require_version>${openmrsPlatformVersion}</require_version>
 
     <require_modules>
         <require_module>org.openmrs.module.fhir2</require_module>
