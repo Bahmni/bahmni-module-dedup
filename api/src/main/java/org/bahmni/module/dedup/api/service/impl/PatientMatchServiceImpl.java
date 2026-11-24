@@ -10,6 +10,7 @@ package org.bahmni.module.dedup.api.service.impl;
 
 import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
 import org.apache.commons.lang3.StringUtils;
+import org.bahmni.module.dedup.api.service.PatientMatchFilter;
 import org.bahmni.module.dedup.api.service.PatientMatchService;
 import org.hl7.fhir.r4.model.Enumerations;
 import org.hl7.fhir.r4.model.HumanName;
@@ -24,6 +25,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.ZoneId;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -53,6 +55,8 @@ public class PatientMatchServiceImpl implements PatientMatchService {
 	
 	private final PatientTranslator patientTranslator;
 	
+	private List<PatientMatchFilter> filters = Collections.emptyList();
+	
 	@Autowired
 	public PatientMatchServiceImpl(PatientService patientService, PersonService personService,
 	    PatientTranslator patientTranslator, GenderTranslator genderTranslator) {
@@ -75,9 +79,18 @@ public class PatientMatchServiceImpl implements PatientMatchService {
 		Set<Person> similarPeople = personService.getSimilarPeople(name, birthYear,
 		    genderTranslator.toOpenmrsType(toMatch.getGender()));
 		
-		return similarPeople.stream().filter(Person::getIsPatient)
-		        .map(person -> patientService.getPatient(person.getPersonId())).map(patientTranslator::toFhirResource)
-		        .collect(Collectors.toList());
+		List<org.openmrs.Patient> candidates = similarPeople.stream().filter(Person::getIsPatient)
+		        .map(person -> patientService.getPatient(person.getPersonId())).collect(Collectors.toList());
+		for (PatientMatchFilter filter : filters) {
+			candidates = filter.filter(candidates);
+		}
+		
+		return candidates.stream().map(patientTranslator::toFhirResource).collect(Collectors.toList());
+	}
+	
+	@Autowired(required = false)
+	public void setFilters(List<PatientMatchFilter> filters) {
+		this.filters = filters;
 	}
 	
 	private void validate(org.hl7.fhir.r4.model.Patient fhirPatient) {

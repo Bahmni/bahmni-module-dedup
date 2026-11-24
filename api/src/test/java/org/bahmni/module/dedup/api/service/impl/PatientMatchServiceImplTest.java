@@ -9,6 +9,7 @@
 package org.bahmni.module.dedup.api.service.impl;
 
 import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
+import org.bahmni.module.dedup.api.service.PatientMatchFilter;
 import org.hl7.fhir.r4.model.DateType;
 import org.hl7.fhir.r4.model.Enumerations;
 import org.hl7.fhir.r4.model.HumanName;
@@ -29,6 +30,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
@@ -117,6 +119,74 @@ public class PatientMatchServiceImplTest {
 		
 		assertThat(result, empty());
 		verify(patientService, never()).getPatient(any());
+	}
+	
+	@Test
+	public void shouldDropPatientsRemovedByFilterAndNotTranslateThem() {
+		Patient kept = new Patient();
+		Patient dropped = new Patient();
+		org.hl7.fhir.r4.model.Patient keptFhir = fhirPatient(Collections.singletonList("Raghu"), "Jetley",
+		    Enumerations.AdministrativeGender.MALE, "1995");
+		Person keptPerson = person(1, true);
+		Person droppedPerson = person(2, true);
+		when(personService.getSimilarPeople(any(), any(), any()))
+		        .thenReturn(new LinkedHashSet<>(Arrays.asList(keptPerson, droppedPerson)));
+		when(patientService.getPatient(1)).thenReturn(kept);
+		when(patientService.getPatient(2)).thenReturn(dropped);
+		when(patientTranslator.toFhirResource(kept)).thenReturn(keptFhir);
+		service.setFilters(Collections
+		        .singletonList(candidates -> candidates.stream().filter(p -> p != dropped).collect(Collectors.toList())));
+		
+		List<org.hl7.fhir.r4.model.Patient> result = service
+		        .findMatches(fhirPatient(Collections.singletonList("A"), "B", Enumerations.AdministrativeGender.MALE, null));
+		
+		assertThat(result, contains(keptFhir));
+		verify(patientTranslator, never()).toFhirResource(dropped);
+	}
+	
+	@Test
+	public void shouldChainFiltersSoEachReceivesThePreviousOutput() {
+		Patient first = new Patient();
+		Patient second = new Patient();
+		Patient third = new Patient();
+		org.hl7.fhir.r4.model.Patient secondFhir = fhirPatient(Collections.singletonList("Raghu"), "Jetley",
+		    Enumerations.AdministrativeGender.MALE, "1995");
+		Person firstPerson = person(1, true);
+		Person secondPerson = person(2, true);
+		Person thirdPerson = person(3, true);
+		when(personService.getSimilarPeople(any(), any(), any()))
+		        .thenReturn(new LinkedHashSet<>(Arrays.asList(firstPerson, secondPerson, thirdPerson)));
+		when(patientService.getPatient(1)).thenReturn(first);
+		when(patientService.getPatient(2)).thenReturn(second);
+		when(patientService.getPatient(3)).thenReturn(third);
+		when(patientTranslator.toFhirResource(second)).thenReturn(secondFhir);
+		PatientMatchFilter dropFirst = candidates -> candidates.stream().filter(p -> p != first)
+		        .collect(Collectors.toList());
+		PatientMatchFilter dropThird = candidates -> {
+			assertThat(candidates, contains(second, third));
+			return candidates.stream().filter(p -> p != third).collect(Collectors.toList());
+		};
+		service.setFilters(Arrays.asList(dropFirst, dropThird));
+		
+		List<org.hl7.fhir.r4.model.Patient> result = service
+		        .findMatches(fhirPatient(Collections.singletonList("A"), "B", Enumerations.AdministrativeGender.MALE, null));
+		
+		assertThat(result, contains(secondFhir));
+	}
+	
+	@Test
+	public void shouldReturnEmptyWhenFilterRemovesEveryCandidate() {
+		Person onlyPerson = person(1, true);
+		when(personService.getSimilarPeople(any(), any(), any()))
+		        .thenReturn(new LinkedHashSet<>(Collections.singletonList(onlyPerson)));
+		when(patientService.getPatient(1)).thenReturn(new Patient());
+		service.setFilters(Collections.singletonList(candidates -> Collections.emptyList()));
+		
+		List<org.hl7.fhir.r4.model.Patient> result = service
+		        .findMatches(fhirPatient(Collections.singletonList("A"), "B", Enumerations.AdministrativeGender.MALE, null));
+		
+		assertThat(result, empty());
+		verify(patientTranslator, never()).toFhirResource(any(Patient.class));
 	}
 	
 	@Test

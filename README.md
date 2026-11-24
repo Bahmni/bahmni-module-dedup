@@ -14,6 +14,24 @@ As of now, this module is intended to be bundled independently onto openmrs.
 - Provides APIs to merge patients, and/or to specify distinct patient identities
 
 
+### Extending `$match`
+Other modules can narrow the candidates returned by `$match` without changing this module. Define a Spring
+bean that implements `org.bahmni.module.dedup.api.service.PatientMatchFilter`:
+
+```java
+@Component
+public class MyFilter implements PatientMatchFilter {
+    public List<Patient> filter(List<Patient> candidates) {
+        return candidates.stream().filter(...).collect(Collectors.toList());
+    }
+}
+```
+
+All filter beans are applied in order (use `@Order` to control it), each receiving the output of the previous
+one. A filter must return a subset of the candidates it was given, preserve their order, and not modify the
+input list. With no filters registered, `$match` behaves exactly as before.
+
+
 ### Configuration
 
 
