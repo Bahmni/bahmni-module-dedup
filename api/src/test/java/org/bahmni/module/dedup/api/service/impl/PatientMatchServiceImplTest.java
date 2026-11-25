@@ -9,20 +9,28 @@
 package org.bahmni.module.dedup.api.service.impl;
 
 import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
+import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
+import org.bahmni.module.dedup.api.dao.PatientDuplicateSuppressionDao;
+import org.bahmni.module.dedup.api.model.PatientDuplicateSuppression;
 import org.bahmni.module.dedup.api.service.PatientMatchFilter;
 import org.hl7.fhir.r4.model.DateType;
 import org.hl7.fhir.r4.model.Enumerations;
 import org.hl7.fhir.r4.model.HumanName;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.openmrs.Patient;
 import org.openmrs.Person;
+import org.openmrs.User;
 import org.openmrs.api.PatientService;
 import org.openmrs.api.PersonService;
+import org.openmrs.api.context.Context;
 import org.openmrs.module.fhir2.api.translators.PatientTranslator;
 import org.openmrs.module.fhir2.api.translators.impl.GenderTranslatorImpl;
 
@@ -36,8 +44,11 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -53,11 +64,30 @@ public class PatientMatchServiceImplTest {
 	@Mock
 	private PatientTranslator patientTranslator;
 	
+	@Mock
+	private PatientDuplicateSuppressionDao suppressionDao;
+	
+	private MockedStatic<Context> context;
+	
+	private User user;
+	
 	private PatientMatchServiceImpl service;
 	
 	@Before
 	public void setUp() {
-		service = new PatientMatchServiceImpl(patientService, personService, patientTranslator, new GenderTranslatorImpl());
+		user = new User();
+		context = Mockito.mockStatic(Context.class);
+		context.when(Context::getAuthenticatedUser).thenReturn(user);
+		service = new PatientMatchServiceImpl(patientService, personService, patientTranslator, new GenderTranslatorImpl(),
+		        suppressionDao);
+		givenPatientWithUuid("edited", 10);
+		givenPatientWithUuid("target-20", 20);
+		givenPatientWithUuid("target-30", 30);
+	}
+	
+	@After
+	public void tearDown() {
+		context.close();
 	}
 	
 	@Test
@@ -231,6 +261,165 @@ public class PatientMatchServiceImplTest {
 		
 		assertThat(rejectionMessage(request), containsString("Gender is not valid"));
 		verify(personService, never()).getSimilarPeople(any(), any(), any());
+	}
+	
+	@Test
+	public void shouldRecordOneNonDuplicatePairPerTarget() {
+		service.recordNonDuplicates("edited", Arrays.asList("target-20", "target-30"), "distinct");
+		
+		List<PatientDuplicateSuppression> saved = savedRows(2);
+		assertThat(saved.get(0).getPatientIdA(), equalTo(10));
+		assertThat(saved.get(0).getPatientIdB(), equalTo(20));
+		assertThat(saved.get(1).getPatientIdA(), equalTo(10));
+		assertThat(saved.get(1).getPatientIdB(), equalTo(30));
+	}
+	
+	@Test
+	public void shouldStoreSmallerPatientIdFirstRegardlessOfRequestOrder() {
+		givenPatientWithUuid("edited-high", 50);
+		
+		service.recordNonDuplicates("edited-high", Collections.singletonList("target-20"), null);
+		
+		PatientDuplicateSuppression saved = savedRows(1).get(0);
+		assertThat(saved.getPatientIdA(), equalTo(20));
+		assertThat(saved.getPatientIdB(), equalTo(50));
+		verify(suppressionDao).findExistingSuppressions(50, Collections.singleton(20));
+	}
+	
+	@Test
+	public void shouldSetReasonCreatorUuidAndDateOnSavedRow() {
+		service.recordNonDuplicates("edited", Collections.singletonList("target-20"), "User verified");
+		
+		PatientDuplicateSuppression saved = savedRows(1).get(0);
+		assertThat(saved.getReason(), equalTo("User verified"));
+		assertThat(saved.getCreator(), equalTo(user));
+		assertThat(saved.getUuid(), notNullValue());
+		assertThat(saved.getDateCreated(), notNullValue());
+	}
+	
+	@Test
+	public void shouldAllowMissingReason() {
+		service.recordNonDuplicates("edited", Collections.singletonList("target-20"), null);
+		
+		assertThat(savedRows(1).get(0).getReason(), equalTo(null));
+	}
+	
+	@Test
+	public void shouldSkipNonDuplicatePairThatIsAlreadyRecorded() {
+		PatientDuplicateSuppression existing = new PatientDuplicateSuppression();
+		existing.setPatientIdA(10);
+		existing.setPatientIdB(20);
+		when(suppressionDao.findExistingSuppressions(10, new LinkedHashSet<>(Arrays.asList(20, 30))))
+		        .thenReturn(Collections.singletonList(existing));
+
+		service.recordNonDuplicates("edited", Arrays.asList("target-20", "target-30"), null);
+		
+		assertThat(savedRows(1).get(0).getPatientIdB(), equalTo(30));
+	}
+	
+	@Test
+	public void shouldRecordRepeatedTargetOnlyOnce() {
+		service.recordNonDuplicates("edited", Arrays.asList("target-20", "target-20"), null);
+		
+		savedRows(1);
+	}
+	
+	@Test
+	public void shouldReturnEditedPatientAsFhirResource() {
+		org.hl7.fhir.r4.model.Patient fhirPatient = new org.hl7.fhir.r4.model.Patient();
+		fhirPatient.setId("edited");
+		when(patientTranslator.toFhirResource(any(Patient.class))).thenReturn(fhirPatient);
+		
+		org.hl7.fhir.r4.model.Patient result = service.recordNonDuplicates("edited", Collections.singletonList("target-20"),
+		    null);
+		
+		assertThat(result, equalTo(fhirPatient));
+	}
+	
+	@Test
+	public void shouldReturnNotFoundWhenEditedPatientDoesNotExist() {
+		try {
+			service.recordNonDuplicates("missing", Collections.singletonList("target-20"), null);
+			throw new AssertionError("Expected ResourceNotFoundException");
+		}
+		catch (ResourceNotFoundException e) {
+			assertThat(e.getMessage(), containsString("missing"));
+		}
+		verify(suppressionDao, never()).save(any());
+	}
+	
+	@Test
+	public void shouldSaveNothingWhenALaterTargetDoesNotExist() {
+		try {
+			service.recordNonDuplicates("edited", Arrays.asList("target-20", "missing"), null);
+			throw new AssertionError("Expected ResourceNotFoundException");
+		}
+		catch (ResourceNotFoundException e) {
+			assertThat(e.getMessage(), containsString("missing"));
+		}
+		verify(suppressionDao, never()).save(any());
+		verify(suppressionDao, never()).findExistingSuppressions(any(), any());
+	}
+	
+	@Test
+	public void shouldRejectPatientAsItsOwnNonDuplicateTarget() {
+		assertRecordRejected(PatientMatchServiceImpl.ERR_SELF_TARGET, "edited", Arrays.asList("target-20", "edited"), null);
+	}
+	
+	@Test
+	public void shouldRejectEmptyNonDuplicateTargets() {
+		assertRecordRejected(PatientMatchServiceImpl.ERR_NO_TARGETS, "edited", Collections.emptyList(), null);
+	}
+	
+	@Test
+	public void shouldRejectNullNonDuplicateTargets() {
+		assertRecordRejected(PatientMatchServiceImpl.ERR_NO_TARGETS, "edited", null, null);
+	}
+	
+	@Test
+	public void shouldRejectReasonLongerThanLimit() {
+		String tooLong = new String(new char[PatientMatchServiceImpl.MAX_REASON_LENGTH + 1]).replace('\0', 'x');
+		
+		assertRecordRejected(PatientMatchServiceImpl.ERR_REASON_TOO_LONG, "edited", Collections.singletonList("target-20"),
+		    tooLong);
+	}
+	
+	@Test
+	public void shouldAcceptReasonAtTheLimit() {
+		String atLimit = new String(new char[PatientMatchServiceImpl.MAX_REASON_LENGTH]).replace('\0', 'x');
+		
+		service.recordNonDuplicates("edited", Collections.singletonList("target-20"), atLimit);
+		
+		assertThat(savedRows(1).get(0).getReason(), equalTo(atLimit));
+	}
+	
+	@Test
+	public void shouldRejectBlankPatientIdsWhenRecordingNonDuplicates() {
+		assertRecordRejected(PatientMatchServiceImpl.ERR_BLANK_PATIENT_ID, " ", Collections.singletonList("target-20"),
+		    null);
+		assertRecordRejected(PatientMatchServiceImpl.ERR_BLANK_PATIENT_ID, "edited", Collections.singletonList(""), null);
+	}
+	
+	private void assertRecordRejected(String expectedMessage, String patientUuid, List<String> targets, String reason) {
+		try {
+			service.recordNonDuplicates(patientUuid, targets, reason);
+		}
+		catch (InvalidRequestException e) {
+			assertThat(e.getMessage(), containsString(expectedMessage));
+			verify(suppressionDao, never()).save(any());
+			return;
+		}
+		throw new AssertionError("Expected InvalidRequestException");
+	}
+	
+	private void givenPatientWithUuid(String uuid, int patientId) {
+		when(patientService.getPatientByUuid(uuid)).thenReturn(new Patient(patientId));
+	}
+	
+	private List<PatientDuplicateSuppression> savedRows(int expectedCount) {
+		ArgumentCaptor<PatientDuplicateSuppression> captor = ArgumentCaptor.forClass(PatientDuplicateSuppression.class);
+		verify(suppressionDao, times(expectedCount)).save(captor.capture());
+		return captor.getAllValues();
 	}
 	
 	private String rejectionMessage(org.hl7.fhir.r4.model.Patient request) {

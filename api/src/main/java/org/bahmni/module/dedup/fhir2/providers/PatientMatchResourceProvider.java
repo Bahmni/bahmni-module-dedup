@@ -8,6 +8,7 @@
  */
 package org.bahmni.module.dedup.fhir2.providers;
 
+import ca.uhn.fhir.rest.annotation.IdParam;
 import ca.uhn.fhir.rest.annotation.Operation;
 import ca.uhn.fhir.rest.annotation.OperationParam;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
@@ -16,12 +17,15 @@ import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
 import org.bahmni.module.dedup.api.service.PatientMatchService;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.r4.model.Bundle;
+import org.hl7.fhir.r4.model.IdType;
 import org.hl7.fhir.r4.model.Patient;
+import org.hl7.fhir.r4.model.StringType;
 import org.openmrs.module.fhir2.api.annotations.R4Provider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Component("bahmniPatientMatchProvider")
 @R4Provider
@@ -57,5 +61,14 @@ public class PatientMatchResourceProvider implements IResourceProvider {
 			entry.getSearch().setMode(Bundle.SearchEntryMode.MATCH);
 		}
 		return bundle;
+	}
+	
+	@Operation(name = "$record-non-duplicate", idempotent = false)
+	public Patient recordNonDuplicate(@IdParam IdType patientId,
+	        @OperationParam(name = "targetPatientId", min = 1, max = OperationParam.MAX_UNLIMITED) List<IdType> targets,
+	        @OperationParam(name = "reason", max = 1) StringType reason) {
+		List<String> targetUuids = targets.stream().map(IdType::getIdPart).collect(Collectors.toList());
+		return matchService.recordNonDuplicates(patientId.getIdPart(), targetUuids,
+		    reason == null ? null : reason.getValue());
 	}
 }

@@ -9,7 +9,10 @@
 package org.bahmni.module.dedup.api.service.impl;
 
 import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
+import ca.uhn.fhir.rest.server.exceptions.ResourceNotFoundException;
 import org.apache.commons.lang3.StringUtils;
+import org.bahmni.module.dedup.api.dao.PatientDuplicateSuppressionDao;
+import org.bahmni.module.dedup.api.model.PatientDuplicateSuppression;
 import org.bahmni.module.dedup.api.service.PatientMatchFilter;
 import org.bahmni.module.dedup.api.service.PatientMatchService;
 import org.hl7.fhir.r4.model.Enumerations;
@@ -17,16 +20,22 @@ import org.hl7.fhir.r4.model.HumanName;
 import org.hl7.fhir.r4.model.Patient;
 import org.hl7.fhir.r4.model.StringType;
 import org.openmrs.Person;
+import org.openmrs.User;
 import org.openmrs.api.PatientService;
 import org.openmrs.api.PersonService;
+import org.openmrs.api.context.Context;
 import org.openmrs.module.fhir2.api.translators.GenderTranslator;
 import org.openmrs.module.fhir2.api.translators.PatientTranslator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -47,6 +56,16 @@ public class PatientMatchServiceImpl implements PatientMatchService {
 	
 	public static final String ERR_INVALID_GENDER = "Gender is not valid: expected male, female or other";
 	
+	public static final int MAX_REASON_LENGTH = 255;
+	
+	public static final String ERR_NO_TARGETS = "At least one targetPatientId is required";
+	
+	public static final String ERR_REASON_TOO_LONG = "Reason must not exceed " + MAX_REASON_LENGTH + " characters";
+	
+	public static final String ERR_SELF_TARGET = "A patient cannot be recorded as a non-duplicate of itself";
+	
+	public static final String ERR_BLANK_PATIENT_ID = "Patient id must not be blank";
+	
 	private final PatientService patientService;
 	
 	private final PersonService personService;
@@ -55,15 +74,19 @@ public class PatientMatchServiceImpl implements PatientMatchService {
 	
 	private final PatientTranslator patientTranslator;
 	
+	private final PatientDuplicateSuppressionDao suppressionDao;
+	
 	private List<PatientMatchFilter> filters = Collections.emptyList();
 	
 	@Autowired
 	public PatientMatchServiceImpl(PatientService patientService, PersonService personService,
-	    PatientTranslator patientTranslator, GenderTranslator genderTranslator) {
+	    PatientTranslator patientTranslator, GenderTranslator genderTranslator,
+	    PatientDuplicateSuppressionDao suppressionDao) {
 		this.patientService = patientService;
 		this.personService = personService;
 		this.genderTranslator = genderTranslator;
 		this.patientTranslator = patientTranslator;
+		this.suppressionDao = suppressionDao;
 	}
 	
 	@Override
@@ -88,9 +111,65 @@ public class PatientMatchServiceImpl implements PatientMatchService {
 		return candidates.stream().map(patientTranslator::toFhirResource).collect(Collectors.toList());
 	}
 	
+	@Override
+	@Transactional
+	public Patient recordNonDuplicates(String patientUuid, List<String> targetUuids, String reason) {
+		if (targetUuids == null || targetUuids.isEmpty()) {
+			throw new InvalidRequestException(ERR_NO_TARGETS);
+		}
+		if (reason != null && reason.length() > MAX_REASON_LENGTH) {
+			throw new InvalidRequestException(ERR_REASON_TOO_LONG);
+		}
+		
+		org.openmrs.Patient patient = requirePatient(patientUuid);
+		Integer primaryId = patient.getPatientId();
+		
+		Set<Integer> targetIds = new LinkedHashSet<>();
+		for (String targetUuid : new LinkedHashSet<>(targetUuids)) {
+			org.openmrs.Patient target = requirePatient(targetUuid);
+			if (target.getPatientId().equals(primaryId)) {
+				throw new InvalidRequestException(ERR_SELF_TARGET);
+			}
+			targetIds.add(target.getPatientId());
+		}
+		
+		Set<Integer> alreadySuppressedIds = suppressionDao.findExistingSuppressions(primaryId, targetIds).stream()
+		        .map(s -> s.getPatientIdA().equals(primaryId) ? s.getPatientIdB() : s.getPatientIdA())
+		        .collect(Collectors.toSet());
+		
+		User currentUser = Context.getAuthenticatedUser();
+		Date now = new Date();
+		
+		for (Integer targetId : targetIds) {
+			if (alreadySuppressedIds.contains(targetId)) {
+				continue;
+			}
+			PatientDuplicateSuppression suppression = new PatientDuplicateSuppression();
+			suppression.setPatientIdA(Math.min(primaryId, targetId));
+			suppression.setPatientIdB(Math.max(primaryId, targetId));
+			suppression.setReason(reason);
+			suppression.setCreator(currentUser);
+			suppression.setDateCreated(now);
+			suppressionDao.save(suppression);
+		}
+		
+		return patientTranslator.toFhirResource(patient);
+	}
+	
 	@Autowired(required = false)
 	public void setFilters(List<PatientMatchFilter> filters) {
 		this.filters = filters;
+	}
+	
+	private org.openmrs.Patient requirePatient(String uuid) {
+		if (StringUtils.isBlank(uuid)) {
+			throw new InvalidRequestException(ERR_BLANK_PATIENT_ID);
+		}
+		org.openmrs.Patient patient = patientService.getPatientByUuid(uuid);
+		if (patient == null) {
+			throw new ResourceNotFoundException("Patient not found: " + uuid);
+		}
+		return patient;
 	}
 	
 	private void validate(org.hl7.fhir.r4.model.Patient fhirPatient) {

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    This Source Code Form is subject to the terms of the Mozilla Public License,
+    			v. 2.0. If a copy of the MPL was not distributed with this file, You can
+    			obtain one at http://mozilla.org/MPL/2.0/. OpenMRS is also distributed under
+    			the terms of the Healthcare Disclaimer located at http://openmrs.org/license.
+
+    			Copyright (C) Thoughtworks Inc.
+
+-->
+<!DOCTYPE hibernate-mapping PUBLIC
+        "-//Hibernate/Hibernate Mapping DTD 3.0//EN"
+        "http://www.hibernate.org/dtd/hibernate-mapping-3.0.dtd">
+<hibernate-mapping package="org.bahmni.module.dedup.api.model">
+
+    <class name="PatientDuplicateSuppression" table="patient_duplicate_suppression">
+
+        <id name="id" type="java.lang.Integer" column="patient_duplicate_suppression_id">
+            <generator class="native"/>
+        </id>
+
+        <property name="uuid" type="java.lang.String" column="uuid" length="38" unique="true" not-null="true"/>
+
+        <property name="patientIdA" type="java.lang.Integer" column="patient_id_a" not-null="true"/>
+        <property name="patientIdB" type="java.lang.Integer" column="patient_id_b" not-null="true"/>
+        <property name="reason" type="java.lang.String" column="reason" length="255"/>
+
+        <many-to-one name="creator" class="org.openmrs.User" column="creator" not-null="true"/>
+        <property name="dateCreated" type="java.util.Date" column="date_created" not-null="true" length="19"/>
+
+    </class>
+</hibernate-mapping>

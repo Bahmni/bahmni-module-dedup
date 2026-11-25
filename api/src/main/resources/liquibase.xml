@@ -16,5 +16,63 @@
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
                             http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.8.xsd">
 
+    <changeSet id="dedup-create-patient-duplicate-suppression-table-20261124" author="dedup">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="patient_duplicate_suppression"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="patient_duplicate_suppression">
+            <column name="patient_duplicate_suppression_id" type="INT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"
+                             primaryKeyName="pk_patient_duplicate_suppression"/>
+            </column>
+            <column name="uuid" type="CHAR(38)">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uq_patient_dup_suppression_uuid"/>
+            </column>
+            <column name="patient_id_a" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="patient_id_b" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reason" type="VARCHAR(255)"/>
+            <column name="creator" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="date_created" type="DATETIME">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseTableName="patient_duplicate_suppression"
+                baseColumnNames="patient_id_a"
+                referencedTableName="patient"
+                referencedColumnNames="patient_id"
+                constraintName="fk_patient_dup_suppression_a"
+                onDelete="CASCADE"/>
+
+        <addForeignKeyConstraint
+                baseTableName="patient_duplicate_suppression"
+                baseColumnNames="patient_id_b"
+                referencedTableName="patient"
+                referencedColumnNames="patient_id"
+                constraintName="fk_patient_dup_suppression_b"
+                onDelete="CASCADE"/>
+
+        <addForeignKeyConstraint
+                baseTableName="patient_duplicate_suppression"
+                baseColumnNames="creator"
+                referencedTableName="users"
+                referencedColumnNames="user_id"
+                constraintName="fk_patient_dup_suppression_creator"/>
+
+        <addUniqueConstraint
+                tableName="patient_duplicate_suppression"
+                columnNames="patient_id_a, patient_id_b"
+                constraintName="uq_patient_dup_suppression_pair"/>
+    </changeSet>
 
 </databaseChangeLog>

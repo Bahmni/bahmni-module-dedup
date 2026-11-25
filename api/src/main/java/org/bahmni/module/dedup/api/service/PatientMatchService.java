@@ -18,4 +18,7 @@ public interface PatientMatchService {
 	
 	@Authorized({ PrivilegeConstants.GET_PATIENTS })
 	List<Patient> findMatches(Patient patient);
+
+    @Authorized({ PrivilegeConstants.GET_PATIENTS })
+	Patient recordNonDuplicates(String patientUuid, List<String> targetUuids, String reason);
 }
