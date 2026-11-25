@@ -90,6 +90,7 @@ public class PatientMatchServiceImpl implements PatientMatchService {
 	}
 	
 	@Override
+	@Transactional(readOnly = true)
 	public List<Patient> findMatches(Patient toMatch) {
 		validate(toMatch);
 		HumanName humanName = toMatch.getNameFirstRep();
@@ -104,11 +105,33 @@ public class PatientMatchServiceImpl implements PatientMatchService {
 		
 		List<org.openmrs.Patient> candidates = similarPeople.stream().filter(Person::getIsPatient)
 		        .map(person -> patientService.getPatient(person.getPersonId())).collect(Collectors.toList());
+		candidates = excludeRecordedNonDuplicates(toMatch, candidates);
 		for (PatientMatchFilter filter : filters) {
 			candidates = filter.filter(candidates);
 		}
 		
 		return candidates.stream().map(patientTranslator::toFhirResource).collect(Collectors.toList());
+	}
+	
+	private List<org.openmrs.Patient> excludeRecordedNonDuplicates(Patient toMatch, List<org.openmrs.Patient> candidates) {
+		String uuid = toMatch.getIdElement().getIdPart();
+		if (StringUtils.isBlank(uuid) || candidates.isEmpty()) {
+			return candidates;
+		}
+		org.openmrs.Patient edited = patientService.getPatientByUuid(uuid);
+		if (edited == null) {
+			return candidates;
+		}
+		Set<Integer> candidateIds = candidates.stream().map(org.openmrs.Patient::getPatientId).collect(Collectors.toSet());
+		Set<Integer> suppressedIds = counterpartIds(edited.getPatientId(),
+		    suppressionDao.findExistingSuppressions(edited.getPatientId(), candidateIds));
+		return candidates.stream().filter(candidate -> !suppressedIds.contains(candidate.getPatientId()))
+		        .collect(Collectors.toList());
+	}
+	
+	private Set<Integer> counterpartIds(Integer patientId, List<PatientDuplicateSuppression> suppressions) {
+		return suppressions.stream().map(s -> s.getPatientIdA().equals(patientId) ? s.getPatientIdB() : s.getPatientIdA())
+		        .collect(Collectors.toSet());
 	}
 	
 	@Override
@@ -133,9 +156,8 @@ public class PatientMatchServiceImpl implements PatientMatchService {
 			targetIds.add(target.getPatientId());
 		}
 		
-		Set<Integer> alreadySuppressedIds = suppressionDao.findExistingSuppressions(primaryId, targetIds).stream()
-		        .map(s -> s.getPatientIdA().equals(primaryId) ? s.getPatientIdB() : s.getPatientIdA())
-		        .collect(Collectors.toSet());
+		Set<Integer> alreadySuppressedIds = counterpartIds(primaryId,
+		    suppressionDao.findExistingSuppressions(primaryId, targetIds));
 		
 		User currentUser = Context.getAuthenticatedUser();
 		Date now = new Date();

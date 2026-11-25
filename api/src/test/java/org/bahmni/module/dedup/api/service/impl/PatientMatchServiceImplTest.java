@@ -34,6 +34,7 @@ import org.openmrs.api.context.Context;
 import org.openmrs.module.fhir2.api.translators.PatientTranslator;
 import org.openmrs.module.fhir2.api.translators.impl.GenderTranslatorImpl;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -47,6 +48,8 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -70,6 +73,8 @@ public class PatientMatchServiceImplTest {
 	private MockedStatic<Context> context;
 	
 	private User user;
+	
+	private final List<Person> candidatePeople = new ArrayList<>();
 	
 	private PatientMatchServiceImpl service;
 	
@@ -311,7 +316,7 @@ public class PatientMatchServiceImplTest {
 		existing.setPatientIdB(20);
 		when(suppressionDao.findExistingSuppressions(10, new LinkedHashSet<>(Arrays.asList(20, 30))))
 		        .thenReturn(Collections.singletonList(existing));
-
+		
 		service.recordNonDuplicates("edited", Arrays.asList("target-20", "target-30"), null);
 		
 		assertThat(savedRows(1).get(0).getPatientIdB(), equalTo(30));
@@ -398,6 +403,87 @@ public class PatientMatchServiceImplTest {
 		assertRecordRejected(PatientMatchServiceImpl.ERR_BLANK_PATIENT_ID, " ", Collections.singletonList("target-20"),
 		    null);
 		assertRecordRejected(PatientMatchServiceImpl.ERR_BLANK_PATIENT_ID, "edited", Collections.singletonList(""), null);
+	}
+	
+	@Test
+	public void shouldDropCandidatesRecordedAsNonDuplicatesOfTheEditedPatient() {
+		Patient kept = givenCandidate(30);
+		givenCandidate(20);
+		org.hl7.fhir.r4.model.Patient keptFhir = new org.hl7.fhir.r4.model.Patient();
+		when(patientTranslator.toFhirResource(kept)).thenReturn(keptFhir);
+		when(suppressionDao.findExistingSuppressions(eq(10), any()))
+		        .thenReturn(Collections.singletonList(suppression(10, 20)));
+		
+		List<org.hl7.fhir.r4.model.Patient> result = service.findMatches(requestFor("edited"));
+		
+		assertThat(result, contains(keptFhir));
+		verify(patientTranslator, never()).toFhirResource(argThat((Patient p) -> p.getPatientId() == 20));
+	}
+	
+	@Test
+	public void shouldNotConsultRecordedNonDuplicatesWhenRequestHasNoId() {
+		givenCandidate(20);
+		
+		service.findMatches(fhirPatient(Collections.singletonList("A"), "B", Enumerations.AdministrativeGender.MALE, null));
+		
+		verify(suppressionDao, never()).findExistingSuppressions(any(), any());
+	}
+	
+	@Test
+	public void shouldKeepAllCandidatesWhenEditedPatientIdIsUnknown() {
+		Patient candidate = givenCandidate(20);
+		org.hl7.fhir.r4.model.Patient candidateFhir = new org.hl7.fhir.r4.model.Patient();
+		when(patientTranslator.toFhirResource(candidate)).thenReturn(candidateFhir);
+		
+		List<org.hl7.fhir.r4.model.Patient> result = service.findMatches(requestFor("unknown"));
+		
+		assertThat(result, contains(candidateFhir));
+		verify(suppressionDao, never()).findExistingSuppressions(any(), any());
+	}
+	
+	@Test
+	public void shouldNotConsultRecordedNonDuplicatesWhenThereAreNoCandidates() {
+		when(personService.getSimilarPeople(any(), any(), any())).thenReturn(Collections.emptySet());
+		
+		service.findMatches(requestFor("edited"));
+		
+		verify(suppressionDao, never()).findExistingSuppressions(any(), any());
+	}
+	
+	@Test
+	public void shouldApplyRecordedNonDuplicatesBeforeFilters() {
+		Patient kept = givenCandidate(30);
+		givenCandidate(20);
+		when(suppressionDao.findExistingSuppressions(eq(10), any()))
+		        .thenReturn(Collections.singletonList(suppression(10, 20)));
+		service.setFilters(Collections.singletonList(candidates -> {
+			assertThat(candidates, contains(kept));
+			return candidates;
+		}));
+		
+		service.findMatches(requestFor("edited"));
+	}
+	
+	private org.hl7.fhir.r4.model.Patient requestFor(String uuid) {
+		org.hl7.fhir.r4.model.Patient request = fhirPatient(Collections.singletonList("A"), "B",
+		    Enumerations.AdministrativeGender.MALE, null);
+		request.setId(uuid);
+		return request;
+	}
+	
+	private Patient givenCandidate(int patientId) {
+		Patient candidate = new Patient(patientId);
+		when(patientService.getPatient(patientId)).thenReturn(candidate);
+		candidatePeople.add(person(patientId, true));
+		when(personService.getSimilarPeople(any(), any(), any())).thenReturn(new LinkedHashSet<>(candidatePeople));
+		return candidate;
+	}
+	
+	private PatientDuplicateSuppression suppression(int patientIdA, int patientIdB) {
+		PatientDuplicateSuppression suppression = new PatientDuplicateSuppression();
+		suppression.setPatientIdA(patientIdA);
+		suppression.setPatientIdB(patientIdB);
+		return suppression;
 	}
 	
 	private void assertRecordRejected(String expectedMessage, String patientUuid, List<String> targets, String reason) {
