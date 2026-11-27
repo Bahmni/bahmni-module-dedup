@@ -323,6 +323,28 @@ public class PatientMatchServiceImplTest {
 	}
 	
 	@Test
+	public void shouldSkipPairAlreadyRecordedInTheOppositeDirection() {
+		when(suppressionDao.findExistingSuppressions(20, Collections.singleton(10)))
+		        .thenReturn(Collections.singletonList(suppression(10, 20)));
+		
+		service.recordNonDuplicates("target-20", Collections.singletonList("edited"), null);
+		
+		verify(suppressionDao, never()).save(any());
+	}
+	
+	@Test
+	public void shouldOnlyRecordNewTargetsWhenSomeAreAlreadyRecordedInTheOppositeDirection() {
+		when(suppressionDao.findExistingSuppressions(20, new LinkedHashSet<>(Arrays.asList(10, 30))))
+		        .thenReturn(Collections.singletonList(suppression(10, 20)));
+		
+		service.recordNonDuplicates("target-20", Arrays.asList("edited", "target-30"), null);
+		
+		PatientDuplicateSuppression saved = savedRows(1).get(0);
+		assertThat(saved.getPatientIdA(), equalTo(20));
+		assertThat(saved.getPatientIdB(), equalTo(30));
+	}
+	
+	@Test
 	public void shouldRecordRepeatedTargetOnlyOnce() {
 		service.recordNonDuplicates("edited", Arrays.asList("target-20", "target-20"), null);
 		
