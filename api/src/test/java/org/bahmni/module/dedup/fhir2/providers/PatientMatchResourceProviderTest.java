@@ -8,25 +8,38 @@
  */
 package org.bahmni.module.dedup.fhir2.providers;
 
+import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
 import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
 import org.bahmni.module.dedup.api.service.PatientMatchService;
 import org.hl7.fhir.r4.model.Bundle;
 import org.hl7.fhir.r4.model.DateType;
 import org.hl7.fhir.r4.model.Enumerations;
+import org.hl7.fhir.r4.model.IdType;
+import org.hl7.fhir.r4.model.Parameters;
 import org.hl7.fhir.r4.model.Patient;
+import org.hl7.fhir.r4.model.StringType;
+import org.hl7.fhir.r4.model.Type;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @RunWith(MockitoJUnitRunner.Silent.class)
@@ -83,6 +96,46 @@ public class PatientMatchResourceProviderTest {
 	@Test
 	public void shouldDeclareResourceTypeAsPatient() {
 		assertThat(provider.getResourceType().equals(Patient.class), equalTo(true));
+	}
+	
+	@Test
+	public void shouldPassUuidsAndReasonToServiceAndReturnEditedPatient() {
+		Patient edited = new Patient();
+		edited.setId("edited");
+		when(matchService.recordNonDuplicates("edited", Arrays.asList("t1", "t2"), "because")).thenReturn(edited);
+		
+		Patient response = provider.recordNonDuplicate(new IdType("Patient/edited"),
+		    Arrays.asList(new IdType("t1"), new IdType("t2")), new StringType("because"));
+		
+		assertThat(response, equalTo(edited));
+	}
+	
+	@Test
+	public void shouldPassNullReasonWhenReasonIsAbsent() {
+		when(matchService.recordNonDuplicates(any(), anyList(), isNull())).thenReturn(new Patient());
+		
+		provider.recordNonDuplicate(new IdType("Patient/edited"), Collections.singletonList(new IdType("t1")), null);
+		
+		verify(matchService).recordNonDuplicates("edited", Collections.singletonList("t1"), null);
+	}
+	
+	@Test
+	public void shouldBindSampleRecordRequestParametersAsIdsAndString() {
+		String sampleRequest = "{\"resourceType\": \"Parameters\", \"parameter\": ["
+		        + "{\"name\": \"targetPatientId\", \"valueId\": \"pat-98765\"},"
+		        + "{\"name\": \"targetPatientId\", \"valueId\": \"pat-55443\"},"
+		        + "{\"name\": \"targetPatientId\", \"valueId\": \"pat-11223\"},"
+		        + "{\"name\": \"reason\", \"valueString\": \"User verified all listed candidates are distinct individuals.\"}]}";
+		
+		Parameters parameters = FhirContext.forR4().newJsonParser().parseResource(Parameters.class, sampleRequest);
+		
+		List<Type> targets = parameters.getParameters("targetPatientId");
+		targets.forEach(target -> assertThat(target, instanceOf(IdType.class)));
+		assertThat(targets.stream().map(target -> ((IdType) target).getIdPart()).collect(Collectors.toList()),
+		    contains("pat-98765", "pat-55443", "pat-11223"));
+		assertThat(parameters.getParameter("reason"), instanceOf(StringType.class));
+		assertThat(((StringType) parameters.getParameter("reason")).getValue(),
+		    equalTo("User verified all listed candidates are distinct individuals."));
 	}
 	
 	private Patient patient(String given, String family) {

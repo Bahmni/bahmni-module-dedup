@@ -34,6 +34,7 @@
 
     <!-- Hibernate mapping files -->
     <mappingFiles>
+        PatientDuplicateSuppression.hbm.xml
     </mappingFiles>
 
 </module>
